@@ -8,7 +8,7 @@
   <packaging>jar</packaging>
 
   <name>recommendation-system</name>
-  <url>http://maven.apache.org</url>
+  <url>https://github.com/ImanAlgo/recommendation-system</url>
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -29,5 +29,17 @@
     </dependency>
 
   </dependencies>
+<build>
+<plugins>
+  <plugin>
+    <groupId>org.codehaus.mojo</groupId>
+    <artifactId>exec-maven-plugin</artifactId>
+    <version>1.6.0</version>
+    <configuration>
+      <mainClass>iman.research.App.java</mainClass>
+    </configuration>
+  </plugin>
+</plugins>
+</build>
 
 </project>
