@@ -1,11 +1,22 @@
 package iman.research;
 
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.FileSystems;
+import java.nio.file.FileVisitResult;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.util.Collections;
 import java.util.List;
 
 import net.librec.common.LibrecException;
 import net.librec.conf.Configuration;
+import net.librec.conf.Configured;
 import net.librec.conf.Configuration.Resource;
 import net.librec.data.DataModel;
+import net.librec.data.convertor.TextDataConvertor;
 import net.librec.data.model.TextDataModel;
 import net.librec.eval.RecommenderEvaluator;
 import net.librec.eval.rating.MAEEvaluator;
@@ -14,6 +25,8 @@ import net.librec.filter.RecommendedFilter;
 import net.librec.recommender.Recommender;
 import net.librec.recommender.RecommenderContext;
 import net.librec.recommender.cf.UserKNNRecommender;
+import net.librec.recommender.cf.rating.SVDPlusPlusRecommender;
+import net.librec.similarity.CosineSimilarity;
 import net.librec.similarity.PCCSimilarity;
 import net.librec.similarity.RecommenderSimilarity;
 
@@ -86,26 +99,92 @@ rec.recommender.isranking=false
 #can use user,item,social similarity, default value is user, maximum values:user,item,social
 #rec.recommender.similarities=user
         */
+    
+        // try {
+        //     String current = new File(".").getCanonicalPath();
+        //     System.out.println("Current dir:"+current);
+        // } catch (IOException e1) {
+        //     // TODO Auto-generated catch block
+        //     e1.printStackTrace();
+        // }
+        
+
   	// recommender configuration
     Configuration conf = new Configuration();
-    conf.set("dfs.data.dir", "ml-1m");
-    conf.set("data.input.path", "ratings.dat");
+    // set data directory
+    conf.set("dfs.data.dir", "data/movielense");
+    // set result directory
+    // recommender result will output in this folder
+    conf.set("dfs.result.dir", "result");
+
+    // convertor
+    // load data and splitting data
+    // into two (or three) set
+
+    // setting dataset name
+    conf.set("data.input.path", "ml-1m");
+    // setting dataset format(UIR, UIRT)
+    conf.set("data.column.format", "UIRT");
+
+    // # movielense dataset is saved by text
+    // # text, arff is accepted
+    conf.set("data.model.format", "text");
+
+    // setting method of split data
+    // value can be ratio, loocv, given, KCV
+    conf.set("data.model.splitter", "ratio");
+    // #data.splitter.cv.number=5
+    // # using rating to split dataset
+    conf.set("data.splitter.ratio", "rating");
+    // # the ratio of trainset
+     // # this value should in (0,1)
+    conf.set("data.splitter.trainset.ratio", "0.8");
+
+    // TextDataConvertor convertor = new TextDataConvertor(conf.get(Configured.CONF_DATA_COLUMN_FORMAT), )
+    // convertor.processData();
+    // RatioDataSplitter splitter = new RatioDataSplitter(convertor, conf);
+    // splitter.splitData();
+
+
+    
+
+
 	// Resource resource = new Resource("rec/cf/userknn-test.properties");
 	// conf.addResource(resource);
 
 	// build data model
 	DataModel dataModel = new TextDataModel(conf);
 	dataModel.buildDataModel();
-	
+
+    // set Similarity
+    conf.set("rec.recommender.similarities","user");
+    RecommenderSimilarity similarity = new CosineSimilarity();
+    similarity.buildSimilarityMatrix(dataModel);
+    
 	// set recommendation context
-	RecommenderContext context = new RecommenderContext(conf, dataModel);
-	RecommenderSimilarity similarity = new PCCSimilarity();
-	similarity.buildSimilarityMatrix(dataModel);
-	context.setSimilarity(similarity);
+	RecommenderContext context = new RecommenderContext(conf, dataModel, similarity);
+	// RecommenderSimilarity similarity = new PCCSimilarity();
+	// similarity.buildSimilarityMatrix(dataModel);
+	// context.setSimilarity(similarity);
 
 	// training
-	Recommender recommender = new UserKNNRecommender();
-	recommender.recommend(context);
+
+    // rec.recommender.class=svdpp
+    // rec.iterator.learnrate=0.002
+    // rec.iterator.learnrate.maximum=0.05
+    // rec.iterator.maximum=100
+    // rec.user.regularization=0.01
+    // rec.item.regularization=0.01
+    // rec.impItem.regularization=0.01
+    // rec.bias.regularization=0.01
+    // rec.factor.number=20
+    // rec.learnrate.bolddriver=false
+    // rec.learnrate.decay=1.0
+
+    conf.set("rec.iterator.maximum", "20");
+
+    Recommender recommender = new SVDPlusPlusRecommender();
+    recommender.recommend(context);
 
 	// evaluation
 	RecommenderEvaluator evaluator = new MAEEvaluator();
