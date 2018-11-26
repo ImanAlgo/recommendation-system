@@ -20,12 +20,16 @@ import net.librec.data.convertor.TextDataConvertor;
 import net.librec.data.model.TextDataModel;
 import net.librec.eval.RecommenderEvaluator;
 import net.librec.eval.rating.MAEEvaluator;
+import net.librec.eval.rating.RMSEEvaluator;
 import net.librec.filter.GenericRecommendedFilter;
 import net.librec.filter.RecommendedFilter;
 import net.librec.recommender.Recommender;
 import net.librec.recommender.RecommenderContext;
 import net.librec.recommender.cf.UserKNNRecommender;
 import net.librec.recommender.cf.rating.SVDPlusPlusRecommender;
+import net.librec.recommender.item.RecommendedItem;
+import net.librec.recommender.item.RecommendedItemList;
+import net.librec.recommender.item.RecommendedList;
 import net.librec.similarity.CosineSimilarity;
 import net.librec.similarity.PCCSimilarity;
 import net.librec.similarity.RecommenderSimilarity;
@@ -158,7 +162,7 @@ rec.recommender.isranking=false
 
     // set Similarity
     conf.set("rec.recommender.similarities","user");
-    RecommenderSimilarity similarity = new CosineSimilarity();
+    RecommenderSimilarity similarity = new PCCSimilarity();
     similarity.buildSimilarityMatrix(dataModel);
     
 	// set recommendation context
@@ -181,19 +185,23 @@ rec.recommender.isranking=false
     // rec.learnrate.bolddriver=false
     // rec.learnrate.decay=1.0
 
-    conf.set("rec.iterator.maximum", "20");
+    conf.set("rec.iterator.maximum", "2");
 
     Recommender recommender = new SVDPlusPlusRecommender();
     recommender.recommend(context);
 
-	// evaluation
-	RecommenderEvaluator evaluator = new MAEEvaluator();
-	recommender.evaluate(evaluator);
+    // evaluate the recommended result
+    RecommenderEvaluator evaluator = new RMSEEvaluator();
+    double rmse = recommender.evaluate(evaluator);
+    List<RecommendedItem> output = recommender.getRecommendedList();
+
+    recommender.saveModel("recomended-result");
+    
 
 	// recommendation results
 	List recommendedItemList = recommender.getRecommendedList();
 	RecommendedFilter filter = new GenericRecommendedFilter();
     recommendedItemList = filter.filter(recommendedItemList);
-    
+
     }
 }
