@@ -258,7 +258,8 @@ public class ComparisonRecAlgsTest {
     }
 
     void OutputResults() throws UnsupportedEncodingException, FileNotFoundException, IOException {
-        try (FileWriter writer = new FileWriter(dataPath + "/results/results.txt", true)) {
+        try {
+            FileWriter writer = new FileWriter(dataPath + "/results/results.txt", true)
             StringBuilder sb = new StringBuilder();
             sb.append("================= BEGIN ===================\n");
             sb.append("RESULTS ::" + dataFolder + "\n");
@@ -270,6 +271,8 @@ public class ComparisonRecAlgsTest {
             sb.append("WAM ::" + data.interp_rmse[1] + "\n");
             sb.append("================= END =====================\n\n");
             writer.append(sb.toString());
+        } catch (Exception e){
+            //IGNORE
         }
     }
 }
