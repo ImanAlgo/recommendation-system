@@ -54,6 +54,9 @@ public class App
         fmalsConf.set("rec.recommender.similarity.key", "user");
         fmalsConf.set("rec.recommender.class", "fmals");
 
+        fmalsConf.set("rec.iterator.learnRate", "0.001");
+        fmalsConf.set("rec.iterator.maximum", "100");
+
         fmalsConf.set("rec.recommender.maxrate", "12.0");
         fmalsConf.set("rec.recommender.minrate", "0.0");
 
@@ -129,7 +132,8 @@ public class App
         dmConf.set("data.splitter.ratio", "rating");
         dmConf.set("data.splitter.trainset.ratio", "0.9");
         
-        SparseMatrix sparseTrainData = ((SparseMatrix)sparsDataModel.getTrainDataSet()).clone();
+        //SparseMatrix sparseTrainData = ((SparseMatrix)sparsDataModel.getTrainDataSet()).clone();
+        SparseMatrix sparseTrainData = new SparseMatrix((SparseMatrix)sparsDataModel.getTrainDataSet());
         MatrixDataModel dataModel = new MatrixDataModel(dmConf, sparseTrainData, sparsDataModel.getUserMappingData(), sparsDataModel.getItemMappingData());
         dataModel.buildDataModel();
 
@@ -138,7 +142,7 @@ public class App
         svdConf.set("rec.recommender.class", "svdpp");
         svdConf.set("rec.iterator.learnrate", "0.01");
         svdConf.set("rec.iterator.learnrate.maximum", "0.01");
-        svdConf.set("rec.iterator.maximum", "13");
+        svdConf.set("rec.iterator.maximum", "1");
         svdConf.set("rec.user.regularization", "0.01");
         svdConf.set("rec.item.regularization", "0.01");
         svdConf.set("rec.impItem.regularization", "0.001");
@@ -160,7 +164,7 @@ public class App
         recommender.recommend(context);
 
         // Merge predicted test data with the train data for imputing 
-        SparseMatrix newTrainData = merge(dataModel.getDataSplitter().getTrainData(), // == (SparseMatrix) dataModel.getTrainDataSet()
+        SparseMatrix newTrainData = merge(sparseTrainData, // == (SparseMatrix) dataModel.getTrainDataSet()
         recommender.getRecommendedList(),
         recommender.getDataModel().getUserMappingData(),
         recommender.getDataModel().getItemMappingData());
@@ -174,11 +178,11 @@ public class App
     static private SparseMatrix merge(SparseMatrix data, List<RecommendedItem> recommendedList, BiMap<String, Integer> userMappingDate, BiMap<String, Integer> itemMappingData){
 
         for(RecommendedItem rItem : recommendedList){
-            // int row = userMappingDate.get(rItem.getUserId());
-            // int column = itemMappingData.get(rItem.getItemId());
+            int row = userMappingDate.get(rItem.getUserId());
+            int column = itemMappingData.get(rItem.getItemId());
 
-            int row = Integer.parseInt(rItem.getUserId());
-            int column = Integer.parseInt(rItem.getItemId());
+            //int row = Integer.parseInt(rItem.getUserId());
+            //int column = Integer.parseInt(rItem.getItemId());
 
             double value = rItem.getValue();
             //data.set(row, column, value);
