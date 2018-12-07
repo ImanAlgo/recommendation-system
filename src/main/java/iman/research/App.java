@@ -10,6 +10,7 @@ import org.apache.commons.logging.LogFactory;
 import net.librec.common.LibrecException;
 import net.librec.conf.Configuration;
 import net.librec.data.DataModel;
+import net.librec.data.model.ArffDataModel;
 import net.librec.data.model.TextDataModel;
 import net.librec.eval.RecommenderEvaluator;
 import net.librec.eval.rating.RMSEEvaluator;
@@ -18,6 +19,8 @@ import net.librec.recommender.Recommender;
 import net.librec.recommender.RecommenderContext;
 import net.librec.recommender.cf.rating.SVDPlusPlusRecommender;
 import net.librec.recommender.cf.rating.FMALSRecommender;
+import net.librec.recommender.cf.rating.FMSGDRecommender;
+import net.librec.recommender.cf.rating.MFALSRecommender;
 import net.librec.recommender.item.RecommendedItem;
 import net.librec.similarity.PCCSimilarity;
 import net.librec.similarity.RecommenderSimilarity;
@@ -45,6 +48,8 @@ public class App
         Recommender recByImputed = app.recommendByFFM(imputedDataModel);
 
         app.evaluate(recBySpars, recByImputed);
+        
+        System.out.println("END!");
 
     }
 
@@ -74,7 +79,7 @@ public class App
         similarity.buildSimilarityMatrix(dataModel);
         context.setSimilarity(similarity);
         // build recommender
-        Recommender recommender = new FMALSRecommender();
+        Recommender recommender = new MFALSRecommender();
         recommender.setContext(context);
         // run recommender algorithm
         recommender.recommend(context);
@@ -95,7 +100,7 @@ public class App
         // load data and splitting data
         // into two (or three) set
 
-        // setting dataset name
+        // setting dataset name ml-1m, ml-100k
         conf.set("data.input.path", "ml-1m");
         // setting dataset format(UIR, UIRT)
         conf.set("data.column.format", "UIRT");
@@ -117,6 +122,7 @@ public class App
         conf.set("rec.random.seed", "1");
         conf.set("data.convert.binarize.threshold", "-1.0");
 
+        //DataModel sparsDataModel = new ArffDataModel(conf);
         DataModel sparsDataModel = new TextDataModel(conf);
         sparsDataModel.buildDataModel();
 
@@ -171,6 +177,7 @@ public class App
 
         // imputed data model
         MatrixDataModel imputedDataModel = new MatrixDataModel(newTrainData, (SparseMatrix)sparsDataModel.getTestDataSet(), sparsDataModel.getUserMappingData(), sparsDataModel.getItemMappingData());
+        imputedDataModel.buildDataModel();
 
         return imputedDataModel;
     }

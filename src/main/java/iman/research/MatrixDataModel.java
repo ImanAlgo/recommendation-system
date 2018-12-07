@@ -19,7 +19,7 @@ public class MatrixDataModel extends AbstractDataModel implements DataModel {
     private BiMap<String, Integer> itemMappingData;
 
     public MatrixDataModel(SparseMatrix trainData, SparseMatrix testData, BiMap<String, Integer> userMappingData, BiMap<String, Integer> itemMappingData){
-        this.conf = null;
+        this.conf = new Configuration();
         this.data = null;
         this.dateTimeData = null;
         this.userMappingData = userMappingData;
