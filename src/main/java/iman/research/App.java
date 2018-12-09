@@ -1,6 +1,10 @@
 package iman.research;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
+import java.util.stream.Stream;
 
 import com.google.common.collect.BiMap;
 
@@ -25,30 +29,28 @@ import net.librec.recommender.item.RecommendedItem;
 import net.librec.similarity.PCCSimilarity;
 import net.librec.similarity.RecommenderSimilarity;
 
-
 /**
  * Hello world!
  *
  */
-public class App 
-{
+public class App {
     /** Log */
     private static final Log LOG = LogFactory.getLog(App.class);
+    private final int IMPUTE_ITERATION_NUMBER = 1;
 
-    public static void main( String[] args ) throws LibrecException
-    {
+    public static void main(String[] args) throws LibrecException {
 
         App app = new App();
 
         DataModel sparsDataModel = app.setupData();
-        
+
         DataModel imputedDataModel = app.impute(sparsDataModel);
 
         Recommender recBySpars = app.recommendByFFM(sparsDataModel);
         Recommender recByImputed = app.recommendByFFM(imputedDataModel);
 
         app.evaluate(recBySpars, recByImputed);
-        
+
         System.out.println("END!");
 
     }
@@ -70,9 +72,9 @@ public class App
         fmalsConf.set("rec.fm.regw0", "0.01");
         fmalsConf.set("reg.fm.regW", "0.01");
         fmalsConf.set("reg.fm.regF", "10");
-        
+
         // build recommender context
-        
+
         RecommenderContext context = new RecommenderContext(fmalsConf, dataModel);
         // build similarity
         RecommenderSimilarity similarity = new PCCSimilarity();
@@ -122,7 +124,7 @@ public class App
         conf.set("rec.random.seed", "1");
         conf.set("data.convert.binarize.threshold", "-1.0");
 
-        //DataModel sparsDataModel = new ArffDataModel(conf);
+        // DataModel sparsDataModel = new ArffDataModel(conf);
         DataModel sparsDataModel = new TextDataModel(conf);
         sparsDataModel.buildDataModel();
 
@@ -133,67 +135,90 @@ public class App
 
         LOG.info("*** Imputing Phase ...");
 
-        Configuration dmConf = new Configuration();
-        dmConf.set("data.model.splitter", "ratio");
-        dmConf.set("data.splitter.ratio", "rating");
-        dmConf.set("data.splitter.trainset.ratio", "0.9");
-        
-        //SparseMatrix sparseTrainData = ((SparseMatrix)sparsDataModel.getTrainDataSet()).clone();
-        SparseMatrix sparseTrainData = new SparseMatrix((SparseMatrix)sparsDataModel.getTrainDataSet());
-        MatrixDataModel dataModel = new MatrixDataModel(dmConf, sparseTrainData, sparsDataModel.getUserMappingData(), sparsDataModel.getItemMappingData());
-        dataModel.buildDataModel();
+        List<String> spliterRatioBy = Arrays.asList("rating" ,"user", "userfixed", "item");
+        List<Recommender> trainedRecommenders = new ArrayList<Recommender>();
 
-        Configuration svdConf = new Configuration();
-        svdConf.set("rec.recommender.similarity.key", "user");
-        svdConf.set("rec.recommender.class", "svdpp");
-        svdConf.set("rec.iterator.learnrate", "0.01");
-        svdConf.set("rec.iterator.learnrate.maximum", "0.01");
-        svdConf.set("rec.iterator.maximum", "1");
-        svdConf.set("rec.user.regularization", "0.01");
-        svdConf.set("rec.item.regularization", "0.01");
-        svdConf.set("rec.impItem.regularization", "0.001");
-        svdConf.set("rec.factor.number", "10");
-        svdConf.set("rec.learnrate.bolddriver", "false");
-        svdConf.set("rec.learnrate.decay", "1.0");
-        
-        // build recommender context
-        
-        RecommenderContext context = new RecommenderContext(svdConf, dataModel);
-        // build similarity
-        RecommenderSimilarity similarity = new PCCSimilarity();
-        similarity.buildSimilarityMatrix(dataModel);
-        context.setSimilarity(similarity);
-        // build recommender
-        Recommender recommender = new SVDPlusPlusRecommender();
-        recommender.setContext(context);
-        // run recommender algorithm
-        recommender.recommend(context);
+        for (int i = 0; i < 4*this.IMPUTE_ITERATION_NUMBER; ++i) {
+            
+            Configuration dmConf = new Configuration();
+            dmConf.set("data.model.splitter", "ratio");
+            dmConf.set("data.splitter.ratio", spliterRatioBy.get(i%4));
+            dmConf.set("data.splitter.trainset.ratio", "0.9");
 
-        // Merge predicted test data with the train data for imputing 
-        SparseMatrix newTrainData = merge(sparseTrainData, // == (SparseMatrix) dataModel.getTrainDataSet()
-        recommender.getRecommendedList(),
-        recommender.getDataModel().getUserMappingData(),
-        recommender.getDataModel().getItemMappingData());
+            SparseMatrix sparseTrainData = new SparseMatrix((SparseMatrix) sparsDataModel.getTrainDataSet());
+            MatrixDataModel dataModel = new MatrixDataModel(dmConf, sparseTrainData,
+                    sparsDataModel.getUserMappingData(), sparsDataModel.getItemMappingData());
+            dataModel.buildDataModel();
 
-        // imputed data model
-        MatrixDataModel imputedDataModel = new MatrixDataModel(newTrainData, (SparseMatrix)sparsDataModel.getTestDataSet(), sparsDataModel.getUserMappingData(), sparsDataModel.getItemMappingData());
-        imputedDataModel.buildDataModel();
+            Configuration svdConf = new Configuration();
+            svdConf.set("rec.recommender.similarity.key", "user");
+            svdConf.set("rec.recommender.class", "svdpp");
+            svdConf.set("rec.iterator.learnrate", "0.01");
+            svdConf.set("rec.iterator.learnrate.maximum", "0.01");
+            svdConf.set("rec.iterator.maximum", "1");
+            svdConf.set("rec.user.regularization", "0.01");
+            svdConf.set("rec.item.regularization", "0.01");
+            svdConf.set("rec.impItem.regularization", "0.001");
+            svdConf.set("rec.factor.number", "1");
+            svdConf.set("rec.learnrate.bolddriver", "false");
+            svdConf.set("rec.learnrate.decay", "1.0");
+
+            // build recommender context
+            RecommenderContext context = new RecommenderContext(svdConf, dataModel);
+            // build similarity
+            RecommenderSimilarity similarity = new PCCSimilarity();
+            similarity.buildSimilarityMatrix(dataModel);
+            context.setSimilarity(similarity);
+            // build recommender
+            Recommender recommender = new SVDPlusPlusRecommender();
+            recommender.setContext(context);
+            // run recommender algorithm
+            recommender.recommend(context);
+
+            trainedRecommenders.add(recommender);
+        }
+
+        class CombineRecommendersCell {
+            private int userIndex;
+            private int itemIndex;
+            private double varianceRate;
+            private double meanRate;
+
+            public CombineRecommendersCell build(int userIndex, int itemIndex, List<Double> rate) {
+                rate.stream()            
+            }
+        }
+
+
+
+            // Merge predicted test data with the train data for imputing
+            // SparseMatrix newTrainData = merge(sparseTrainData, // == (SparseMatrix) dataModel.getTrainDataSet()
+            //         recommender.getRecommendedList(), recommender.getDataModel().getUserMappingData(),
+            //         recommender.getDataModel().getItemMappingData());
+
+            // imputed data model
+            // MatrixDataModel imputedDataModel = new MatrixDataModel(newTrainData,
+            //         (SparseMatrix) sparsDataModel.getTestDataSet(), sparsDataModel.getUserMappingData(),
+            //         sparsDataModel.getItemMappingData());
+            // imputedDataModel.buildDataModel();
 
         return imputedDataModel;
     }
 
-    static private SparseMatrix merge(SparseMatrix data, List<RecommendedItem> recommendedList, BiMap<String, Integer> userMappingDate, BiMap<String, Integer> itemMappingData){
+    static private SparseMatrix merge(SparseMatrix data, List<RecommendedItem> recommendedList,
+            BiMap<String, Integer> userMappingDate, BiMap<String, Integer> itemMappingData) {
 
-        for(RecommendedItem rItem : recommendedList){
+        for (RecommendedItem rItem : recommendedList) {
             int row = userMappingDate.get(rItem.getUserId());
             int column = itemMappingData.get(rItem.getItemId());
 
-            //int row = Integer.parseInt(rItem.getUserId());
-            //int column = Integer.parseInt(rItem.getItemId());
+            // int row = Integer.parseInt(rItem.getUserId());
+            // int column = Integer.parseInt(rItem.getItemId());
 
             double value = rItem.getValue();
-            //data.set(row, column, value);
-            data.add(row, column, value);
+            // data.set(row, column, value);
+            if (!data.contains(row, column))
+                data.set(row, column, value);
         }
 
         SparseMatrix.reshape(data);
