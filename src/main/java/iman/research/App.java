@@ -54,31 +54,41 @@ public class App {
 
     public Recommender recommendByFFM(DataModel dataModel) throws LibrecException {
 
+        Configuration svdConf = new Configuration();
+        svdConf.set("rec.recommender.similarity.key", "user");
+        svdConf.set("rec.recommender.class", "svdpp");
+        svdConf.set("rec.iterator.learnrate", "0.01");
+        svdConf.set("rec.iterator.learnrate.maximum", "0.01");
+        svdConf.set("rec.iterator.maximum", "1");
+        svdConf.set("rec.user.regularization", "0.01");
+        svdConf.set("rec.item.regularization", "0.01");
+        svdConf.set("rec.impItem.regularization", "0.001");
+        svdConf.set("rec.factor.number", "20");
+        svdConf.set("rec.learnrate.bolddriver", "false");
+        svdConf.set("rec.learnrate.decay", "1.0");
+
         Configuration fmalsConf = new Configuration();
         fmalsConf.set("rec.recommender.similarity.key", "user");
         fmalsConf.set("rec.recommender.class", "fmals");
-
         fmalsConf.set("rec.iterator.learnRate", "0.001");
         fmalsConf.set("rec.iterator.maximum", "100");
-
         fmalsConf.set("rec.recommender.maxrate", "12.0");
         fmalsConf.set("rec.recommender.minrate", "0.0");
-
         fmalsConf.set("rec.factor.number", "10");
-
         fmalsConf.set("rec.fm.regw0", "0.01");
         fmalsConf.set("reg.fm.regW", "0.01");
         fmalsConf.set("reg.fm.regF", "10");
 
         // build recommender context
 
-        RecommenderContext context = new RecommenderContext(fmalsConf, dataModel);
+        RecommenderContext context = new RecommenderContext(svdConf, dataModel);
         // build similarity
         RecommenderSimilarity similarity = new PCCSimilarity();
         similarity.buildSimilarityMatrix(dataModel);
         context.setSimilarity(similarity);
         // build recommender
-        Recommender recommender = new MFALSRecommender();
+        //Recommender recommender = new MFALSRecommender();
+        Recommender recommender = new SVDPlusPlusRecommender();
         recommender.setContext(context);
         // run recommender algorithm
         recommender.recommend(context);
@@ -132,8 +142,12 @@ public class App {
 
         LOG.info("================== IMPUTING PHASE ==================");
 
+        SparseMatrix sparseTrainData = (SparseMatrix) sparsDataModel.getTrainDataSet();
+
+        Map<Integer, Map<Integer, CombinedRecommendersCell> > combinedRecMap = new HashMap<>();
+        TreeSet<CombinedRecommendersCell> orderedCombinedRecByVariance = new TreeSet<>();
+
         List<String> spliterRatioBy = Arrays.asList("rating" ,"user", "userfixed", "item");
-        List<Recommender> trainedRecommenders = new ArrayList<Recommender>();
 
         for (int i = 0; i < 4*this.IMPUTE_ITERATION_NUMBER; ++i) {
             
@@ -144,7 +158,6 @@ public class App {
 
             LOG.info("=== New round with split data based on " + dmConf.get("data.splitter.ratio"));
 
-            SparseMatrix sparseTrainData = new SparseMatrix((SparseMatrix) sparsDataModel.getTrainDataSet());
             MatrixDataModel dataModel = new MatrixDataModel(dmConf, sparseTrainData,
                     sparsDataModel.getUserMappingData(), sparsDataModel.getItemMappingData());
             dataModel.buildDataModel();
@@ -174,22 +187,14 @@ public class App {
             // run recommender algorithm
             recommender.recommend(context);
 
-            trainedRecommenders.add(recommender);
-        }
-
-        SparseMatrix imputedTrainMatrix = new SparseMatrix((SparseMatrix) sparsDataModel.getTrainDataSet());
-
-        Map<Integer, Map<Integer, CombinedRecommendersCell> > combinedRecMap = new HashMap<>();
-        TreeSet<CombinedRecommendersCell> orderedCombinedRecByVariance = new TreeSet<>();
-
-        for(Recommender rec : trainedRecommenders){
-            List<RecommendedItem> recommendedList = rec.getRecommendedList();
+            List<RecommendedItem> recommendedList = recommender.getRecommendedList();
             
             for (RecommendedItem rItem : recommendedList) {
+
                 int userIndex = sparsDataModel.getUserMappingData().get(rItem.getUserId());
                 int itemIndex = sparsDataModel.getItemMappingData().get(rItem.getItemId());
                 
-                if (!imputedTrainMatrix.contains(userIndex, itemIndex)){
+                if (!sparseTrainData.contains(userIndex, itemIndex)) {
                     CombinedRecommendersCell cell = new CombinedRecommendersCell(userIndex, itemIndex);
                     combinedRecMap.putIfAbsent(userIndex, new HashMap<>());
                     combinedRecMap.get(userIndex).putIfAbsent(itemIndex, cell);
@@ -203,6 +208,10 @@ public class App {
             }
         }
 
+        LOG.info("=== Imputing the train matrix");
+
+        SparseMatrix imputedTrainMatrix = new SparseMatrix(sparseTrainData);
+
         Iterator<CombinedRecommendersCell> itr = orderedCombinedRecByVariance.iterator(); 
         for (int counter = 0; itr.hasNext() && counter < (imputedTrainMatrix.size()*0.1); ++counter) { 
             CombinedRecommendersCell cell = itr.next();
@@ -215,11 +224,15 @@ public class App {
             //         recommender.getRecommendedList(), recommender.getDataModel().getUserMappingData(),
             //         recommender.getDataModel().getItemMappingData());
 
-        // imputed data model
+        LOG.info("=== Creating the new data model base on the imputed train matrix");
+
+        // Create imputed data model
         MatrixDataModel imputedDataModel = new MatrixDataModel(imputedTrainMatrix,
                 (SparseMatrix) sparsDataModel.getTestDataSet(), sparsDataModel.getUserMappingData(),
                 sparsDataModel.getItemMappingData());
         imputedDataModel.buildDataModel();
+
+        LOG.info("================== IMPUTING PHASE DONE! ==================");
 
         return imputedDataModel;
     }
