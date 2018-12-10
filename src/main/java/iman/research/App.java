@@ -2,11 +2,11 @@ package iman.research;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collection;
+import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
-import java.util.stream.Stream;
-
-import com.google.common.collect.BiMap;
+import java.util.Map;
+import java.util.TreeSet;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -14,17 +14,14 @@ import org.apache.commons.logging.LogFactory;
 import net.librec.common.LibrecException;
 import net.librec.conf.Configuration;
 import net.librec.data.DataModel;
-import net.librec.data.model.ArffDataModel;
 import net.librec.data.model.TextDataModel;
 import net.librec.eval.RecommenderEvaluator;
 import net.librec.eval.rating.RMSEEvaluator;
 import net.librec.math.structure.SparseMatrix;
 import net.librec.recommender.Recommender;
 import net.librec.recommender.RecommenderContext;
-import net.librec.recommender.cf.rating.SVDPlusPlusRecommender;
-import net.librec.recommender.cf.rating.FMALSRecommender;
-import net.librec.recommender.cf.rating.FMSGDRecommender;
 import net.librec.recommender.cf.rating.MFALSRecommender;
+import net.librec.recommender.cf.rating.SVDPlusPlusRecommender;
 import net.librec.recommender.item.RecommendedItem;
 import net.librec.similarity.PCCSimilarity;
 import net.librec.similarity.RecommenderSimilarity;
@@ -133,7 +130,7 @@ public class App {
 
     public MatrixDataModel impute(DataModel sparsDataModel) throws LibrecException {
 
-        LOG.info("*** Imputing Phase ...");
+        LOG.info("================== IMPUTING PHASE ==================");
 
         List<String> spliterRatioBy = Arrays.asList("rating" ,"user", "userfixed", "item");
         List<Recommender> trainedRecommenders = new ArrayList<Recommender>();
@@ -144,6 +141,8 @@ public class App {
             dmConf.set("data.model.splitter", "ratio");
             dmConf.set("data.splitter.ratio", spliterRatioBy.get(i%4));
             dmConf.set("data.splitter.trainset.ratio", "0.9");
+
+            LOG.info("=== New round with split data based on " + dmConf.get("data.splitter.ratio"));
 
             SparseMatrix sparseTrainData = new SparseMatrix((SparseMatrix) sparsDataModel.getTrainDataSet());
             MatrixDataModel dataModel = new MatrixDataModel(dmConf, sparseTrainData,
@@ -159,7 +158,7 @@ public class App {
             svdConf.set("rec.user.regularization", "0.01");
             svdConf.set("rec.item.regularization", "0.01");
             svdConf.set("rec.impItem.regularization", "0.001");
-            svdConf.set("rec.factor.number", "1");
+            svdConf.set("rec.factor.number", "10");
             svdConf.set("rec.learnrate.bolddriver", "false");
             svdConf.set("rec.learnrate.decay", "1.0");
 
@@ -178,53 +177,73 @@ public class App {
             trainedRecommenders.add(recommender);
         }
 
-        class CombineRecommendersCell {
-            private int userIndex;
-            private int itemIndex;
-            private double varianceRate;
-            private double meanRate;
+        SparseMatrix imputedTrainMatrix = new SparseMatrix((SparseMatrix) sparsDataModel.getTrainDataSet());
 
-            public CombineRecommendersCell build(int userIndex, int itemIndex, List<Double> rate) {
-                rate.stream()            
+        Map<Integer, Map<Integer, CombinedRecommendersCell> > combinedRecMap = new HashMap<>();
+        TreeSet<CombinedRecommendersCell> orderedCombinedRecByVariance = new TreeSet<>();
+
+        for(Recommender rec : trainedRecommenders){
+            List<RecommendedItem> recommendedList = rec.getRecommendedList();
+            
+            for (RecommendedItem rItem : recommendedList) {
+                int userIndex = sparsDataModel.getUserMappingData().get(rItem.getUserId());
+                int itemIndex = sparsDataModel.getItemMappingData().get(rItem.getItemId());
+                
+                if (!imputedTrainMatrix.contains(userIndex, itemIndex)){
+                    CombinedRecommendersCell cell = new CombinedRecommendersCell(userIndex, itemIndex);
+                    combinedRecMap.putIfAbsent(userIndex, new HashMap<>());
+                    combinedRecMap.get(userIndex).putIfAbsent(itemIndex, cell);
+                    cell = combinedRecMap.get(userIndex).get(itemIndex);
+
+                    double rate = rItem.getValue();
+                    cell.addRate(rate);
+
+                    orderedCombinedRecByVariance.add(cell);
+                }
             }
         }
 
-
+        Iterator<CombinedRecommendersCell> itr = orderedCombinedRecByVariance.iterator(); 
+        for (int counter = 0; itr.hasNext() && counter < (imputedTrainMatrix.size()*0.1); ++counter) { 
+            CombinedRecommendersCell cell = itr.next();
+            imputedTrainMatrix.set(cell.getUserIndex(), cell.getItemIndex(), cell.getMean());
+        }
+        SparseMatrix.reshape(imputedTrainMatrix);
 
             // Merge predicted test data with the train data for imputing
             // SparseMatrix newTrainData = merge(sparseTrainData, // == (SparseMatrix) dataModel.getTrainDataSet()
             //         recommender.getRecommendedList(), recommender.getDataModel().getUserMappingData(),
             //         recommender.getDataModel().getItemMappingData());
 
-            // imputed data model
-            // MatrixDataModel imputedDataModel = new MatrixDataModel(newTrainData,
-            //         (SparseMatrix) sparsDataModel.getTestDataSet(), sparsDataModel.getUserMappingData(),
-            //         sparsDataModel.getItemMappingData());
-            // imputedDataModel.buildDataModel();
+        // imputed data model
+        MatrixDataModel imputedDataModel = new MatrixDataModel(imputedTrainMatrix,
+                (SparseMatrix) sparsDataModel.getTestDataSet(), sparsDataModel.getUserMappingData(),
+                sparsDataModel.getItemMappingData());
+        imputedDataModel.buildDataModel();
 
         return imputedDataModel;
     }
 
-    static private SparseMatrix merge(SparseMatrix data, List<RecommendedItem> recommendedList,
-            BiMap<String, Integer> userMappingDate, BiMap<String, Integer> itemMappingData) {
+    // static private SparseMatrix merge(SparseMatrix data, List<RecommendedItem> recommendedList,
+    //         BiMap<String, Integer> userMappingDate, BiMap<String, Integer> itemMappingData) {
 
-        for (RecommendedItem rItem : recommendedList) {
-            int row = userMappingDate.get(rItem.getUserId());
-            int column = itemMappingData.get(rItem.getItemId());
+    //     for (RecommendedItem rItem : recommendedList) {
+    //         int row = userMappingDate.get(rItem.getUserId());
+    //         int column = itemMappingData.get(rItem.getItemId());
 
-            // int row = Integer.parseInt(rItem.getUserId());
-            // int column = Integer.parseInt(rItem.getItemId());
+    //         // int row = Integer.parseInt(rItem.getUserId());
+    //         // int column = Integer.parseInt(rItem.getItemId());
 
-            double value = rItem.getValue();
-            // data.set(row, column, value);
-            if (!data.contains(row, column))
-                data.set(row, column, value);
-        }
+    //         double value = rItem.getValue();
+    //         // data.set(row, column, value);
+    //         if (!data.contains(row, column))
+    //             data.set(row, column, value);
+    //     }
 
-        SparseMatrix.reshape(data);
+    //     SparseMatrix.reshape(data);
 
-        return data;
-    }
+    //     return data;
+    // }
 
     public void evaluate(Recommender recBySpars, Recommender recByImputed) throws LibrecException {
 
