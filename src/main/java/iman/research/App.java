@@ -1,12 +1,8 @@
 package iman.research;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.TreeSet;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.*;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -33,23 +29,153 @@ import net.librec.similarity.RecommenderSimilarity;
 public class App {
     /** Log */
     private static final Log LOG = LogFactory.getLog(App.class);
-    private final int IMPUTE_ITERATION_NUMBER = 1;
+    Configuration cfg = new Configuration();
+
+    public App(String configFile) {
+        init(configFile);
+    }
 
     public static void main(String[] args) throws LibrecException {
 
-        App app = new App();
+        App app = new App(args==null||args.length==0?null:args[0]);
 
         DataModel sparsDataModel = app.setupData();
 
         DataModel imputedDataModel = app.impute(sparsDataModel);
 
+        LOG.info("== Execution of MFALSRecommender base on sparse train data(is not imputed)");
         Recommender recBySpars = app.recommendByFFM(sparsDataModel);
+        LOG.info("== Execution of MFALSRecommender base on imputed train data");
         Recommender recByImputed = app.recommendByFFM(imputedDataModel);
 
+        LOG.info("== Comparing the result of recommendations base on being imputed and not imputed train data");
         app.evaluate(recBySpars, recByImputed);
 
-        System.out.println("END!");
+        System.out.println("THE END!");
 
+    }
+
+    private void init(String configFile) {
+
+        Path path = Paths.get("main.properties");
+        Configuration.Resource resource = new Configuration.Resource(path);
+        cfg.addResource(resource);
+    }
+
+    public DataModel setupData() throws LibrecException {
+        DataModel sparsDataModel = new TextDataModel(cfg);
+        sparsDataModel.buildDataModel();
+
+        return sparsDataModel;
+    }
+
+    public MatrixDataModel impute(DataModel sparsDataModel) throws LibrecException {
+
+        LOG.info("================== IMPUTING PHASE ==================");
+
+        SparseMatrix sparseTrainData = (SparseMatrix) sparsDataModel.getTrainDataSet();
+
+        Map<Integer, Map<Integer, CombinedRecommendersCell> > combinedRecMap = new HashMap<>();
+        TreeSet<CombinedRecommendersCell> orderedCombinedRecByVariance = new TreeSet<>();
+
+        final String[] SPLITE_BY = cfg.getStrings("impute.splitter.ratio"); // rating,user,userfixed,item
+        final int NUMBER_OF_RATIO_TYPES = SPLITE_BY.length;
+        final int IMPUTE_ITERATION_NUMBER = cfg.getInt("impute.rounds", 10);
+
+        LOG.info("== Starting ("+NUMBER_OF_RATIO_TYPES * IMPUTE_ITERATION_NUMBER+") random rounds");
+        for (int i = 0; i < NUMBER_OF_RATIO_TYPES * IMPUTE_ITERATION_NUMBER; ++i) {
+            
+            Configuration dmConf = new Configuration();
+            dmConf.set("data.model.splitter", "ratio");
+            dmConf.set("data.splitter.ratio", SPLITE_BY[i%NUMBER_OF_RATIO_TYPES]);
+            dmConf.set("data.splitter.trainset.ratio", "1");
+
+            LOG.info("=== New round("+(i%NUMBER_OF_RATIO_TYPES)+") with splitting data based on " + dmConf.get("data.splitter.ratio"));
+
+            MatrixDataModel dataModel = new MatrixDataModel(dmConf, sparseTrainData,
+                    sparsDataModel.getUserMappingData(), sparsDataModel.getItemMappingData());
+            dataModel.buildDataModel();
+
+            Configuration svdConf = new Configuration();
+            svdConf.set("rec.recommender.similarity.key", "user");
+            svdConf.set("rec.recommender.class", "svdpp");
+            svdConf.set("rec.iterator.learnrate", "0.01");
+            svdConf.set("rec.iterator.learnrate.maximum", "0.01");
+            svdConf.set("rec.iterator.maximum", "1");
+            svdConf.set("rec.user.regularization", "0.01");
+            svdConf.set("rec.item.regularization", "0.01");
+            svdConf.set("rec.impItem.regularization", "0.001");
+            svdConf.set("rec.factor.number", "10");
+            svdConf.set("rec.learnrate.bolddriver", "false");
+            svdConf.set("rec.learnrate.decay", "1.0");
+
+            LOG.info("------ Create recommender context");
+            // build recommender context
+            RecommenderContext context = new RecommenderContext(svdConf, dataModel);
+            LOG.info("------ Build PCC similarity");
+            // build similarity
+            RecommenderSimilarity similarity = new PCCSimilarity();
+            similarity.buildSimilarityMatrix(dataModel);
+            context.setSimilarity(similarity);
+            // build recommender
+            Recommender recommender = new SVDPlusPlusRecommender();
+            recommender.setContext(context);
+            LOG.info("------ Execute SVD++ recommender");
+            // run recommender algorithm
+            recommender.recommend(context);
+
+            LOG.info("------ Accumulate recommendations");
+            List<RecommendedItem> recommendedList = recommender.getRecommendedList();
+            
+            for (RecommendedItem rItem : recommendedList) {
+
+                int userIndex = sparsDataModel.getUserMappingData().get(rItem.getUserId());
+                int itemIndex = sparsDataModel.getItemMappingData().get(rItem.getItemId());
+                
+                if (!sparseTrainData.contains(userIndex, itemIndex)) {
+                    CombinedRecommendersCell cell = new CombinedRecommendersCell(userIndex, itemIndex);
+                    combinedRecMap.putIfAbsent(userIndex, new HashMap<>());
+                    combinedRecMap.get(userIndex).putIfAbsent(itemIndex, cell);
+                    cell = combinedRecMap.get(userIndex).get(itemIndex);
+
+                    double rate = rItem.getValue();
+                    cell.addRate(rate);
+
+                    orderedCombinedRecByVariance.add(cell);
+                }
+            }
+        }
+
+        LOG.info("== End of imputing random rounds");
+
+        float imputeRatio = cfg.getFloat("impute.ratio", 0.1f);
+        final float IMPUTE_RATIO = imputeRatio > 1 ? 1 : imputeRatio < 0 ? 0 : imputeRatio;
+        LOG.info("== Imputing "+IMPUTE_RATIO*100+"% of train data plus its own real present data");
+        SparseMatrix imputedTrainMatrix = new SparseMatrix(sparseTrainData);
+
+        Iterator<CombinedRecommendersCell> itr = orderedCombinedRecByVariance.iterator(); 
+        for (int counter = 0; itr.hasNext() && counter < (imputedTrainMatrix.size()*IMPUTE_RATIO); ++counter) {
+            CombinedRecommendersCell cell = itr.next();
+            imputedTrainMatrix.set(cell.getUserIndex(), cell.getItemIndex(), cell.getMean());
+        }
+        SparseMatrix.reshape(imputedTrainMatrix);
+
+            // Merge predicted test data with the train data for imputing
+            // SparseMatrix newTrainData = merge(sparseTrainData, // == (SparseMatrix) dataModel.getTrainDataSet()
+            //         recommender.getRecommendedList(), recommender.getDataModel().getUserMappingData(),
+            //         recommender.getDataModel().getItemMappingData());
+
+        LOG.info("=== Creating the new data model base on the imputed train matrix");
+
+        // Create imputed data model
+        MatrixDataModel imputedDataModel = new MatrixDataModel(imputedTrainMatrix,
+                (SparseMatrix) sparsDataModel.getTestDataSet(), sparsDataModel.getUserMappingData(),
+                sparsDataModel.getItemMappingData());
+        imputedDataModel.buildDataModel();
+
+        LOG.info("================== IMPUTING PHASE DONE! ==================");
+
+        return imputedDataModel;
     }
 
     public Recommender recommendByFFM(DataModel dataModel) throws LibrecException {
@@ -81,182 +207,20 @@ public class App {
 
         // build recommender context
 
-        RecommenderContext context = new RecommenderContext(svdConf, dataModel);
+        RecommenderContext context = new RecommenderContext(fmalsConf, dataModel);
         // build similarity
         RecommenderSimilarity similarity = new PCCSimilarity();
         similarity.buildSimilarityMatrix(dataModel);
         context.setSimilarity(similarity);
         // build recommender
-        //Recommender recommender = new MFALSRecommender();
-        Recommender recommender = new SVDPlusPlusRecommender();
+        Recommender recommender = new MFALSRecommender();
+        //Recommender recommender = new SVDPlusPlusRecommender();
         recommender.setContext(context);
         // run recommender algorithm
         recommender.recommend(context);
 
         return recommender;
     }
-
-    DataModel setupData() throws LibrecException {
-        Configuration conf = new Configuration();
-
-        // set data directory
-        conf.set("dfs.data.dir", "data/movielense");
-        // set result directory
-        // recommender result will output in this folder
-        conf.set("dfs.result.dir", "result");
-
-        // convertor
-        // load data and splitting data
-        // into two (or three) set
-
-        // setting dataset name ml-1m, ml-100k
-        conf.set("data.input.path", "ml-1m");
-        // setting dataset format(UIR, UIRT)
-        conf.set("data.column.format", "UIRT");
-
-        // # movielense dataset is saved by text
-        // # text, arff is accepted
-        conf.set("data.model.format", "text");
-
-        // setting method of split data
-        // value can be ratio, loocv, given, KCV
-        conf.set("data.model.splitter", "ratio");
-        // #data.splitter.cv.number=5
-        // # using rating to split dataset
-        conf.set("data.splitter.ratio", "rating");
-        // # the ratio of trainset
-        // # this value should in (0,1)
-        conf.set("data.splitter.trainset.ratio", "0.8");
-
-        conf.set("rec.random.seed", "1");
-        conf.set("data.convert.binarize.threshold", "-1.0");
-
-        // DataModel sparsDataModel = new ArffDataModel(conf);
-        DataModel sparsDataModel = new TextDataModel(conf);
-        sparsDataModel.buildDataModel();
-
-        return sparsDataModel;
-    }
-
-    public MatrixDataModel impute(DataModel sparsDataModel) throws LibrecException {
-
-        LOG.info("================== IMPUTING PHASE ==================");
-
-        SparseMatrix sparseTrainData = (SparseMatrix) sparsDataModel.getTrainDataSet();
-
-        Map<Integer, Map<Integer, CombinedRecommendersCell> > combinedRecMap = new HashMap<>();
-        TreeSet<CombinedRecommendersCell> orderedCombinedRecByVariance = new TreeSet<>();
-
-        List<String> spliterRatioBy = Arrays.asList("rating" ,"user", "userfixed", "item");
-
-        for (int i = 0; i < 4*this.IMPUTE_ITERATION_NUMBER; ++i) {
-            
-            Configuration dmConf = new Configuration();
-            dmConf.set("data.model.splitter", "ratio");
-            dmConf.set("data.splitter.ratio", spliterRatioBy.get(i%4));
-            dmConf.set("data.splitter.trainset.ratio", "0.9");
-
-            LOG.info("=== New round with split data based on " + dmConf.get("data.splitter.ratio"));
-
-            MatrixDataModel dataModel = new MatrixDataModel(dmConf, sparseTrainData,
-                    sparsDataModel.getUserMappingData(), sparsDataModel.getItemMappingData());
-            dataModel.buildDataModel();
-
-            Configuration svdConf = new Configuration();
-            svdConf.set("rec.recommender.similarity.key", "user");
-            svdConf.set("rec.recommender.class", "svdpp");
-            svdConf.set("rec.iterator.learnrate", "0.01");
-            svdConf.set("rec.iterator.learnrate.maximum", "0.01");
-            svdConf.set("rec.iterator.maximum", "1");
-            svdConf.set("rec.user.regularization", "0.01");
-            svdConf.set("rec.item.regularization", "0.01");
-            svdConf.set("rec.impItem.regularization", "0.001");
-            svdConf.set("rec.factor.number", "10");
-            svdConf.set("rec.learnrate.bolddriver", "false");
-            svdConf.set("rec.learnrate.decay", "1.0");
-
-            // build recommender context
-            RecommenderContext context = new RecommenderContext(svdConf, dataModel);
-            // build similarity
-            RecommenderSimilarity similarity = new PCCSimilarity();
-            similarity.buildSimilarityMatrix(dataModel);
-            context.setSimilarity(similarity);
-            // build recommender
-            Recommender recommender = new SVDPlusPlusRecommender();
-            recommender.setContext(context);
-            // run recommender algorithm
-            recommender.recommend(context);
-
-            List<RecommendedItem> recommendedList = recommender.getRecommendedList();
-            
-            for (RecommendedItem rItem : recommendedList) {
-
-                int userIndex = sparsDataModel.getUserMappingData().get(rItem.getUserId());
-                int itemIndex = sparsDataModel.getItemMappingData().get(rItem.getItemId());
-                
-                if (!sparseTrainData.contains(userIndex, itemIndex)) {
-                    CombinedRecommendersCell cell = new CombinedRecommendersCell(userIndex, itemIndex);
-                    combinedRecMap.putIfAbsent(userIndex, new HashMap<>());
-                    combinedRecMap.get(userIndex).putIfAbsent(itemIndex, cell);
-                    cell = combinedRecMap.get(userIndex).get(itemIndex);
-
-                    double rate = rItem.getValue();
-                    cell.addRate(rate);
-
-                    orderedCombinedRecByVariance.add(cell);
-                }
-            }
-        }
-
-        LOG.info("=== Imputing the train matrix");
-
-        SparseMatrix imputedTrainMatrix = new SparseMatrix(sparseTrainData);
-
-        Iterator<CombinedRecommendersCell> itr = orderedCombinedRecByVariance.iterator(); 
-        for (int counter = 0; itr.hasNext() && counter < (imputedTrainMatrix.size()*0.1); ++counter) { 
-            CombinedRecommendersCell cell = itr.next();
-            imputedTrainMatrix.set(cell.getUserIndex(), cell.getItemIndex(), cell.getMean());
-        }
-        SparseMatrix.reshape(imputedTrainMatrix);
-
-            // Merge predicted test data with the train data for imputing
-            // SparseMatrix newTrainData = merge(sparseTrainData, // == (SparseMatrix) dataModel.getTrainDataSet()
-            //         recommender.getRecommendedList(), recommender.getDataModel().getUserMappingData(),
-            //         recommender.getDataModel().getItemMappingData());
-
-        LOG.info("=== Creating the new data model base on the imputed train matrix");
-
-        // Create imputed data model
-        MatrixDataModel imputedDataModel = new MatrixDataModel(imputedTrainMatrix,
-                (SparseMatrix) sparsDataModel.getTestDataSet(), sparsDataModel.getUserMappingData(),
-                sparsDataModel.getItemMappingData());
-        imputedDataModel.buildDataModel();
-
-        LOG.info("================== IMPUTING PHASE DONE! ==================");
-
-        return imputedDataModel;
-    }
-
-    // static private SparseMatrix merge(SparseMatrix data, List<RecommendedItem> recommendedList,
-    //         BiMap<String, Integer> userMappingDate, BiMap<String, Integer> itemMappingData) {
-
-    //     for (RecommendedItem rItem : recommendedList) {
-    //         int row = userMappingDate.get(rItem.getUserId());
-    //         int column = itemMappingData.get(rItem.getItemId());
-
-    //         // int row = Integer.parseInt(rItem.getUserId());
-    //         // int column = Integer.parseInt(rItem.getItemId());
-
-    //         double value = rItem.getValue();
-    //         // data.set(row, column, value);
-    //         if (!data.contains(row, column))
-    //             data.set(row, column, value);
-    //     }
-
-    //     SparseMatrix.reshape(data);
-
-    //     return data;
-    // }
 
     public void evaluate(Recommender recBySpars, Recommender recByImputed) throws LibrecException {
 
@@ -266,7 +230,7 @@ public class App {
         RecommenderEvaluator evaluator2 = new RMSEEvaluator();
         double imputedRmse = recByImputed.evaluate(evaluator2);
 
-        LOG.info("RMSE obtained by sparse train set:  " + sparsRmse);
-        LOG.info("RMSE obtained by imputed train set: " + imputedRmse);
+        LOG.info("== RMSE obtained by sparse train set:  " + sparsRmse);
+        LOG.info("== RMSE obtained by imputed train set: " + imputedRmse);
     }
 }
