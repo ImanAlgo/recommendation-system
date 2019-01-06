@@ -1,0 +1,23 @@
+This test has been completed on 2019-01-04T10:38:28.866 and has taken PT15H22M38.999S
+The evaluation result is as the follow:
+	RMSE obtained by sparse train set:	0.878057
+	RMSE obtained by imputed train set:	0.877271
+
+Here is the initial used configuration: 
+data.convert.binarize.threshold	=	-1.0
+impute.ratio	=	0.11
+impute.splitter.ratio	=	rating,user,userfixed,item
+data.splitter.ratio	=	rating
+impute.splitter.trainset.ratio	=	0.95
+data.splitter.trainset.ratio	=	0.8
+impute.rounds	=	20
+dfs.result.dir	=	result
+data.convert.read.ready	=	true
+rec.eval.enable	=	true
+data.input.path	=	ml-1m
+rec.recommender.isranking	=	false
+dfs.data.dir	=	data/movielense
+rec.random.seed	=	1
+data.model.format	=	text
+data.column.format	=	UIRT
+data.model.splitter	=	ratio
