@@ -12,6 +12,10 @@ import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 
+import com.google.common.collect.HashBasedTable;
+import com.google.common.collect.HashMultimap;
+import com.google.common.collect.Multimap;
+import com.google.common.collect.Table;
 import net.librec.math.algorithm.Randoms;
 import net.librec.math.structure.MatrixEntry;
 import org.apache.commons.logging.Log;
@@ -177,14 +181,30 @@ public class App {
         float imputeRatio = cfg.getFloat("impute.ratio", 0.1f);
         final float IMPUTE_RATIO = imputeRatio > 1 ? 1 : imputeRatio < 0 ? 0 : imputeRatio;
         LOG.info("== Imputing " + IMPUTE_RATIO * 100 + "% of train data plus its own real present data");
-        SparseMatrix imputedTrainMatrix = new SparseMatrix(sparseTrainMatrix);
 
-        Iterator<CombinedRecommendersCell> itr = orderedCombinedRecByVariance.iterator();
-        for (int counter = 0; itr.hasNext() && counter < (imputedTrainMatrix.size() * IMPUTE_RATIO); ++counter) {
+        Table<Integer, Integer, Double> dataTable = HashBasedTable.create();
+        Multimap<Integer, Integer> colMap = HashMultimap.create();
+
+        int counter = 0;
+        for (Iterator<CombinedRecommendersCell> itr = orderedCombinedRecByVariance.iterator();
+             itr.hasNext() && counter < (sparseTrainMatrix.numRows * sparseTrainMatrix.numColumns * IMPUTE_RATIO);
+             ++counter) {
             CombinedRecommendersCell cell = itr.next();
-            imputedTrainMatrix.set(cell.getUserIndex(), cell.getItemIndex(), cell.getMean());
+            if(cell.getVariance()>2)
+                break;
+            dataTable.put(cell.getUserIndex(), cell.getItemIndex(), cell.getMean());
+            colMap.put(cell.getItemIndex(), cell.getUserIndex());
         }
-        //SparseMatrix.reshape(imputedTrainMatrix);
+        LOG.info(String.format("=== Imputed %s items from %s", counter, (sparseTrainMatrix.numRows * sparseTrainMatrix.numColumns * IMPUTE_RATIO)));
+        orderedCombinedRecByVariance = null;
+        for(MatrixEntry entry : sparseTrainMatrix){
+            if(dataTable.contains(entry.row(), entry.column()))
+                LOG.error(String.format("@@@@@@@@ Recommend value already is exist(%s , %s)",entry.row(), entry.column()));
+
+            dataTable.put(entry.row(), entry.column(), entry.get());
+            colMap.put(entry.column(), entry.row());
+        }
+        SparseMatrix imputedTrainMatrix = new SparseMatrix(sparseTrainMatrix.numRows, sparseTrainMatrix.numColumns, dataTable, colMap);
 
         LOG.info("=== Creating the new data model base on the imputed train matrix");
 
