@@ -16,6 +16,8 @@ import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Table;
+import net.librec.eval.rating.MAEEvaluator;
+import net.librec.eval.rating.MPEEvaluator;
 import net.librec.math.algorithm.Randoms;
 import net.librec.math.structure.MatrixEntry;
 import org.apache.commons.logging.Log;
@@ -45,6 +47,12 @@ public class App {
      */
     private static final Log LOG = LogFactory.getLog(App.class);
     Configuration cfg = new Configuration();
+    double lastVariance = -1;
+    Set<Double> differentVariance = new HashSet<>();
+    long actualNumberOfImputedCells = 0;
+    long maximumNumberOfToBeImputedCells = 0;
+    long numberOfWholeCells = 0;
+
     private Instant start;
 
     public App(String configFile) {
@@ -108,7 +116,7 @@ public class App {
             dmConf.set("data.model.splitter", "ratio");
             dmConf.set("data.splitter.ratio", SPLITE_BY[i % NUMBER_OF_RATIO_TYPES]);
             dmConf.set("data.splitter.trainset.ratio", SPLITE_RATIO);
-            //dmConf.set("rec.random.seed", String.valueOf(System.currentTimeMillis()));
+            dmConf.set("rec.random.seed", String.valueOf(System.currentTimeMillis()));
 
             LOG.info("=== New round " + (i) + " out of " + NUMBER_OF_RATIO_TYPES * IMPUTE_ITERATION_NUMBER + " rounds with splitting data based on " + dmConf.get("data.splitter.ratio"));
 
@@ -186,6 +194,7 @@ public class App {
         Multimap<Integer, Integer> colMap = HashMultimap.create();
 
         int counter = 0;
+
         for (Iterator<CombinedRecommendersCell> itr = orderedCombinedRecByVariance.iterator();
              itr.hasNext() && counter < (sparseTrainMatrix.numRows * sparseTrainMatrix.numColumns * IMPUTE_RATIO);
              ++counter) {
@@ -194,8 +203,14 @@ public class App {
                 break;
             dataTable.put(cell.getUserIndex(), cell.getItemIndex(), cell.getMean());
             colMap.put(cell.getItemIndex(), cell.getUserIndex());
+            lastVariance = cell.getVariance();
+            int absVariance = (int) Math.abs(cell.getVariance());
+            differentVariance.add(cell.getVariance()-absVariance < 0.5 ? (double)absVariance : 0.5d + (double)absVariance);
         }
-        LOG.info(String.format("=== Imputed %s items from %s", counter, (sparseTrainMatrix.numRows * sparseTrainMatrix.numColumns * IMPUTE_RATIO)));
+        actualNumberOfImputedCells = counter;
+        maximumNumberOfToBeImputedCells = (long)(sparseTrainMatrix.numRows * sparseTrainMatrix.numColumns * IMPUTE_RATIO);
+        numberOfWholeCells = (long)(sparseTrainMatrix.numRows * sparseTrainMatrix.numColumns * IMPUTE_RATIO);
+        LOG.info(String.format("=== Imputed %s items from %s", actualNumberOfImputedCells, maximumNumberOfToBeImputedCells));
         orderedCombinedRecByVariance = null;
         for(MatrixEntry entry : sparseTrainMatrix){
             if(dataTable.contains(entry.row(), entry.column()))
@@ -265,28 +280,66 @@ public class App {
 
     public EvaluationResult evaluate(Recommender recBySpars, Recommender recByImputed) throws LibrecException {
 
-        RecommenderEvaluator evaluator1 = new RMSEEvaluator();
-        double sparsRmse = recBySpars.evaluate(evaluator1);
+        EvaluationResult er = new EvaluationResult();
 
-        RecommenderEvaluator evaluator2 = new RMSEEvaluator();
-        double imputedRmse = recByImputed.evaluate(evaluator2);
 
-        LOG.info("== RMSE obtained by sparse train set:  " + sparsRmse);
-        LOG.info("== RMSE obtained by imputed train set: " + imputedRmse);
+        RecommenderEvaluator evaluator = new RMSEEvaluator();
+        double sparsResult = recBySpars.evaluate(evaluator);
 
-        return new EvaluationResult(sparsRmse, imputedRmse);
+        evaluator = new RMSEEvaluator();
+        double imputedResult = recByImputed.evaluate(evaluator);
+
+        er.setSparsRmse(sparsResult);
+        er.setImputedRmse(imputedResult);
+        LOG.info("== RMSE obtained by sparse train set:  " + sparsResult);
+        LOG.info("== RMSE obtained by imputed train set: " + imputedResult);
+
+        evaluator = new MAEEvaluator();
+        sparsResult = recBySpars.evaluate(evaluator);
+
+        evaluator = new MAEEvaluator();
+        imputedResult = recByImputed.evaluate(evaluator);
+
+        er.setSparsMae(sparsResult);
+        er.setImputedMae(imputedResult);
+        LOG.info("== MAEE obtained by sparse train set:  " + sparsResult);
+        LOG.info("== MAEE obtained by imputed train set: " + imputedResult);
+
+        evaluator = new MPEEvaluator();
+        sparsResult = recBySpars.evaluate(evaluator);
+
+        evaluator = new MPEEvaluator();
+        imputedResult = recByImputed.evaluate(evaluator);
+
+        er.setSparsMpe(sparsResult);
+        er.setImputedMpe(imputedResult);
+        LOG.info("== MAPE obtained by sparse train set:  " + sparsResult);
+        LOG.info("== MAPE obtained by imputed train set: " + imputedResult);
+
+        return er;
     }
 
     private void printResult(EvaluationResult result) throws IOException {
         StringBuilder builder = new StringBuilder();
         builder.append(String.format("This test has been completed on %s and has taken %s"
                 , LocalDateTime.now(), Duration.between(start, Instant.now())));
+        builder.append(String.format("\nNumber of whole cells is: %s", numberOfWholeCells));
+        builder.append(String.format("\nNumber of to be imputed cells is: %s", maximumNumberOfToBeImputedCells));
+        builder.append(String.format("\nActual number of imputed cells is: %s", actualNumberOfImputedCells));
         builder.append("\nThe evaluation result is as the follow:");
         builder.append(String.format("\n\tRMSE obtained by sparse train set:\t%f", result.getSparsRmse()));
         builder.append(String.format("\n\tRMSE obtained by imputed train set:\t%f", result.getImputedRmse()));
+        builder.append(String.format("\n\tRMAE obtained by sparse train set:\t%f", result.getSparsMae()));
+        builder.append(String.format("\n\tRMAE obtained by imputed train set:\t%f", result.getImputedMae()));
+        builder.append(String.format("\n\tRMPE obtained by sparse train set:\t%f", result.getSparsMpe()));
+        builder.append(String.format("\n\tRMPE obtained by imputed train set:\t%f", result.getImputedMpe()));
         builder.append("\n\nHere is the initial used configuration: ");
         for (Map.Entry<String, String> entry : cfg) {
             builder.append(String.format("\n%s\t=\t%s", entry.getKey(), entry.getValue()));
+        }
+        builder.append("\nHere is the list of variances: ");
+        for(Double v : differentVariance) {
+            builder.append(v.toString());
         }
 
         String resultPath = cfg.get("dfs.result.dir", ".");
