@@ -188,7 +188,7 @@ public class App {
 
         float imputeRatio = cfg.getFloat("impute.ratio", 0.1f);
         final float IMPUTE_RATIO = imputeRatio > 1 ? 1 : imputeRatio < 0 ? 0 : imputeRatio;
-        LOG.info("== Imputing " + IMPUTE_RATIO * 100 + "% of train data plus its own real present data");
+        LOG.info("== Imputing " + IMPUTE_RATIO * 100f + "% of train data plus its own real present data");
 
         Table<Integer, Integer, Double> dataTable = HashBasedTable.create();
         Multimap<Integer, Integer> colMap = HashMultimap.create();
@@ -196,7 +196,7 @@ public class App {
         int counter = 0;
 
         for (Iterator<CombinedRecommendersCell> itr = orderedCombinedRecByVariance.iterator();
-             itr.hasNext() && counter < (sparseTrainMatrix.numRows * sparseTrainMatrix.numColumns * IMPUTE_RATIO);
+             itr.hasNext() && counter < ((float)sparseTrainMatrix.numRows * (float)sparseTrainMatrix.numColumns * IMPUTE_RATIO);
              ++counter) {
             CombinedRecommendersCell cell = itr.next();
             if(cell.getVariance()>2)
@@ -207,9 +207,9 @@ public class App {
             int absVariance = (int) Math.abs(cell.getVariance());
             differentVariance.add(cell.getVariance()-absVariance < 0.5 ? (double)absVariance : 0.5d + (double)absVariance);
         }
-        actualNumberOfImputedCells = counter;
-        maximumNumberOfToBeImputedCells = (long)(sparseTrainMatrix.numRows * sparseTrainMatrix.numColumns * IMPUTE_RATIO);
-        numberOfWholeCells = (long)(sparseTrainMatrix.numRows * sparseTrainMatrix.numColumns * IMPUTE_RATIO);
+        actualNumberOfImputedCells = --counter;
+        maximumNumberOfToBeImputedCells = (long)((float)sparseTrainMatrix.numRows * (float)sparseTrainMatrix.numColumns * IMPUTE_RATIO);
+        numberOfWholeCells = (long)(sparseTrainMatrix.numRows * sparseTrainMatrix.numColumns);
         LOG.info(String.format("=== Imputed %s items from %s", actualNumberOfImputedCells, maximumNumberOfToBeImputedCells));
         orderedCombinedRecByVariance = null;
         for(MatrixEntry entry : sparseTrainMatrix){
@@ -326,18 +326,18 @@ public class App {
         builder.append(String.format("\nNumber of whole cells is: %s", numberOfWholeCells));
         builder.append(String.format("\nNumber of to be imputed cells is: %s", maximumNumberOfToBeImputedCells));
         builder.append(String.format("\nActual number of imputed cells is: %s", actualNumberOfImputedCells));
-        builder.append("\nThe evaluation result is as the follow:");
+        builder.append("\n\nThe evaluation result is as the follow:");
         builder.append(String.format("\n\tRMSE obtained by sparse train set:\t%f", result.getSparsRmse()));
         builder.append(String.format("\n\tRMSE obtained by imputed train set:\t%f", result.getImputedRmse()));
-        builder.append(String.format("\n\tRMAE obtained by sparse train set:\t%f", result.getSparsMae()));
+        builder.append(String.format("\n\n\tRMAE obtained by sparse train set:\t%f", result.getSparsMae()));
         builder.append(String.format("\n\tRMAE obtained by imputed train set:\t%f", result.getImputedMae()));
-        builder.append(String.format("\n\tRMPE obtained by sparse train set:\t%f", result.getSparsMpe()));
+        builder.append(String.format("\n\n\tRMPE obtained by sparse train set:\t%f", result.getSparsMpe()));
         builder.append(String.format("\n\tRMPE obtained by imputed train set:\t%f", result.getImputedMpe()));
         builder.append("\n\nHere is the initial used configuration: ");
         for (Map.Entry<String, String> entry : cfg) {
             builder.append(String.format("\n%s\t=\t%s", entry.getKey(), entry.getValue()));
         }
-        builder.append("\nHere is the list of variances: ");
+        builder.append("\n\nHere is the list of variances: \n");
         for(Double v : differentVariance) {
             builder.append(v.toString());
         }

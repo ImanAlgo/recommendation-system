@@ -1,0 +1,36 @@
+This test has been completed on 2019-01-11T15:58:38.472655 and has taken PT14M53.863765S
+Number of whole cells is: 1586126
+Number of to be imputed cells is: 793063
+Actual number of imputed cells is: 793062
+
+The evaluation result is as the follow:
+	RMSE obtained by sparse train set:	1.061452
+	RMSE obtained by imputed train set:	0.982153
+
+	RMAE obtained by sparse train set:	0.802507
+	RMAE obtained by imputed train set:	0.757634
+
+	RMPE obtained by sparse train set:	0.962150
+	RMPE obtained by imputed train set:	0.974683
+
+Here is the initial used configuration: 
+data.convert.binarize.threshold	=	-1.0
+impute.ratio	=	0.5
+impute.splitter.ratio	=	rating,user,userfixed,item
+data.splitter.ratio	=	rating
+impute.splitter.trainset.ratio	=	0.3
+data.splitter.trainset.ratio	=	0.8
+impute.rounds	=	20
+dfs.result.dir	=	result
+data.convert.read.ready	=	true
+data.input.path	=	ml-100k
+rec.eval.enable	=	true
+rec.recommender.isranking	=	false
+dfs.data.dir	=	data/movielense
+rec.random.seed	=	1
+data.model.format	=	text
+data.column.format	=	UIRT
+data.model.splitter	=	ratio
+
+Here is the list of variances: 
+0.0
