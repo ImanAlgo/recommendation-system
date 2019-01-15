@@ -102,7 +102,7 @@ public class App {
         SparseMatrix sparseTrainMatrix = (SparseMatrix) sparsDataModel.getTrainDataSet();
 
         Map<Integer, Map<Integer, CombinedRecommendersCell>> combinedRecMap = new HashMap<>();
-        TreeSet<CombinedRecommendersCell> orderedCombinedRecByVariance = new TreeSet<>();
+        List<CombinedRecommendersCell> orderedCombinedRecByVariance = new ArrayList<>();
 
         final String SPLITE_RATIO = cfg.get("impute.splitter.trainset.ratio", "0.5");
         final String[] SPLITE_BY = cfg.getStrings("impute.splitter.ratio"); // rating,user,userfixed,item
@@ -184,6 +184,8 @@ public class App {
             }
         }
 
+        orderedCombinedRecByVariance.sort(CombinedRecommendersCell::compareTo);
+
         LOG.info("== End of imputing random rounds");
 
         float imputeRatio = cfg.getFloat("impute.ratio", 0.1f);
@@ -205,7 +207,8 @@ public class App {
             colMap.put(cell.getItemIndex(), cell.getUserIndex());
             lastVariance = cell.getVariance();
             int absVariance = (int) Math.abs(cell.getVariance());
-            differentVariance.add(cell.getVariance()-absVariance < 0.5 ? (double)absVariance : 0.5d + (double)absVariance);
+            //differentVariance.add(cell.getVariance()-absVariance < 0.5 ? (double)absVariance : 0.5d + (double)absVariance);
+            differentVariance.add(cell.getVariance());
         }
         actualNumberOfImputedCells = --counter;
         maximumNumberOfToBeImputedCells = (long)((float)sparseTrainMatrix.numRows * (float)sparseTrainMatrix.numColumns * IMPUTE_RATIO);
