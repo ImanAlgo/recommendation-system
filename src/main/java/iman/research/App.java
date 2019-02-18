@@ -1,61 +1,55 @@
 package iman.research;
 
-import java.io.FileWriter;
-import java.io.IOException;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.text.Normalizer;
-import java.time.Duration;
-import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.LocalTime;
-import java.time.format.DateTimeFormatter;
-import java.util.*;
-
 import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Table;
-import net.librec.eval.rating.MAEEvaluator;
-import net.librec.eval.rating.MPEEvaluator;
-import net.librec.math.algorithm.Randoms;
-import net.librec.math.structure.MatrixEntry;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
-
 import net.librec.common.LibrecException;
 import net.librec.conf.Configuration;
 import net.librec.data.DataModel;
 import net.librec.data.model.TextDataModel;
 import net.librec.eval.RecommenderEvaluator;
+import net.librec.eval.rating.MAEEvaluator;
+import net.librec.eval.rating.MPEEvaluator;
 import net.librec.eval.rating.RMSEEvaluator;
+import net.librec.math.structure.MatrixEntry;
 import net.librec.math.structure.SparseMatrix;
 import net.librec.recommender.Recommender;
 import net.librec.recommender.RecommenderContext;
 import net.librec.recommender.cf.rating.MFALSRecommender;
 import net.librec.recommender.cf.rating.SVDPlusPlusRecommender;
-import net.librec.recommender.item.RecommendedItem;
 import net.librec.similarity.PCCSimilarity;
 import net.librec.similarity.RecommenderSimilarity;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 
-/**
- * Hello world!
- */
+import java.io.FileWriter;
+import java.io.IOException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+
 public class App {
-    /**
-     * Log
-     */
+
     private static final Log LOG = LogFactory.getLog(App.class);
-    Configuration cfg = new Configuration();
-    double lastVariance = -1;
-    List<Double> differentVariance = new ArrayList<>();
-    long actualNumberOfImputedCells = 0;
-    long maximumNumberOfToBeImputedCells = 0;
-    long numberOfWholeCells = 0;
+    private Configuration cfg = new Configuration();
+    private double lastVariance = -1;
+    private List<Double> differentVariance = new ArrayList<>();
+    private long actualNumberOfImputedCells = 0;
+    private long maximumNumberOfToBeImputedCells = 0;
+    private long numberOfWholeCells = 0;
 
     private Instant start;
 
-    public App(String configFile) {
+    private App(String configFile) {
         init(configFile);
     }
 
@@ -89,6 +83,7 @@ public class App {
     }
 
     public DataModel setupData() throws LibrecException {
+        cfg.set("rec.random.seed", String.valueOf(System.currentTimeMillis()));
         DataModel sparsDataModel = new TextDataModel(cfg);
         sparsDataModel.buildDataModel();
 
