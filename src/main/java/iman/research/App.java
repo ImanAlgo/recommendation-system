@@ -48,7 +48,7 @@ public class App {
     private static final Log LOG = LogFactory.getLog(App.class);
     Configuration cfg = new Configuration();
     double lastVariance = -1;
-    Set<Double> differentVariance = new HashSet<>();
+    List<Double> differentVariance = new ArrayList<>();
     long actualNumberOfImputedCells = 0;
     long maximumNumberOfToBeImputedCells = 0;
     long numberOfWholeCells = 0;
@@ -102,7 +102,7 @@ public class App {
         SparseMatrix sparseTrainMatrix = (SparseMatrix) sparsDataModel.getTrainDataSet();
 
         Map<Integer, Map<Integer, CombinedRecommendersCell>> combinedRecMap = new HashMap<>();
-        List<CombinedRecommendersCell> orderedCombinedRecByVariance = new ArrayList<>();
+        List<CombinedRecommendersCell> orderedCombinedRecByVariance = new ArrayList<>(sparseTrainMatrix.numRows()*sparseTrainMatrix.numColumns());
 
         final String SPLITE_RATIO = cfg.get("impute.splitter.trainset.ratio", "0.5");
         final String[] SPLITE_BY = cfg.getStrings("impute.splitter.ratio"); // rating,user,userfixed,item
@@ -324,8 +324,8 @@ public class App {
 
     private void printResult(EvaluationResult result) throws IOException {
         StringBuilder builder = new StringBuilder();
-        builder.append(String.format("This test has been completed on %s and has taken %s"
-                , LocalDateTime.now(), Duration.between(start, Instant.now())));
+        builder.append(String.format("This test has taken %s minutes to complete on %s"
+                , Duration.between(start, Instant.now()).getSeconds()/60, LocalDateTime.now()));
         builder.append(String.format("\nNumber of whole cells is: %s", numberOfWholeCells));
         builder.append(String.format("\nNumber of to be imputed cells is: %s", maximumNumberOfToBeImputedCells));
         builder.append(String.format("\nActual number of imputed cells is: %s", actualNumberOfImputedCells));
@@ -342,13 +342,14 @@ public class App {
         }
         builder.append("\n\nHere is the list of variances: \n");
         for(Double v : differentVariance) {
-            builder.append(v.toString());
+            builder.append(String.format("%+10.4f\n", v));
         }
 
+        String filename = String.format("rounds-%s_impute-%s_%s", cfg.get("impute.rounds"), cfg.get("impute.ratio")
+            , LocalDateTime.now().format(DateTimeFormatter.ofPattern("YYYY-MM-dd-HH-mm-ss")));
         String resultPath = cfg.get("dfs.result.dir", ".");
-        FileWriter writer = new FileWriter(resultPath + "/random-rec-test-" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("YYYY-MM-dd-HH-mm-ss")));
+        FileWriter writer = new FileWriter(resultPath + "/" + filename);
         writer.write(builder.toString());
         writer.close();
     }
-
 }
