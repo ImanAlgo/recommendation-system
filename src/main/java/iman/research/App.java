@@ -20,6 +20,10 @@ import net.librec.eval.rating.MAEEvaluator;
 import net.librec.eval.rating.MPEEvaluator;
 import net.librec.math.algorithm.Randoms;
 import net.librec.math.structure.MatrixEntry;
+import net.librec.recommender.cf.ItemKNNRecommender;
+import net.librec.recommender.cf.UserKNNRecommender;
+import net.librec.recommender.cf.rating.NMFRecommender;
+import net.librec.recommender.cf.rating.PMFRecommender;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
@@ -239,41 +243,49 @@ public class App {
 
     public Recommender recommendByFFM(DataModel dataModel) throws LibrecException {
 
-        Configuration svdConf = new Configuration();
-        svdConf.set("rec.recommender.similarity.key", "user");
-        svdConf.set("rec.recommender.class", "svdpp");
-        svdConf.set("rec.iterator.learnrate", "0.01");
-        svdConf.set("rec.iterator.learnrate.maximum", "0.01");
-        svdConf.set("rec.iterator.maximum", "1");
-        svdConf.set("rec.user.regularization", "0.01");
-        svdConf.set("rec.item.regularization", "0.01");
-        svdConf.set("rec.impItem.regularization", "0.001");
-        svdConf.set("rec.factor.number", "20");
-        svdConf.set("rec.learnrate.bolddriver", "false");
-        svdConf.set("rec.learnrate.decay", "1.0");
+//        Configuration svdConf = new Configuration();
+//        svdConf.set("rec.recommender.similarity.key", "user");
+//        svdConf.set("rec.recommender.class", "svdpp");
+//        svdConf.set("rec.iterator.learnrate", "0.01");
+//        svdConf.set("rec.iterator.learnrate.maximum", "0.01");
+//        svdConf.set("rec.iterator.maximum", "1");
+//        svdConf.set("rec.user.regularization", "0.01");
+//        svdConf.set("rec.item.regularization", "0.01");
+//        svdConf.set("rec.impItem.regularization", "0.001");
+//        svdConf.set("rec.factor.number", "20");
+//        svdConf.set("rec.learnrate.bolddriver", "false");
+//        svdConf.set("rec.learnrate.decay", "1.0");
+//
+//        Configuration fmalsConf = new Configuration();
+//        fmalsConf.set("rec.recommender.similarity.key", "user");
+//        fmalsConf.set("rec.iterator.learnRate", "0.001");
+//        fmalsConf.set("rec.iterator.maximum", "100");
+//        fmalsConf.set("rec.recommender.class", "fmals");
+//        fmalsConf.set("rec.recommender.maxrate", "12.0");
+//        fmalsConf.set("rec.recommender.minrate", "0.0");
+//        fmalsConf.set("rec.factor.number", "10");
+//        fmalsConf.set("rec.fm.regw0", "0.01");
+//        fmalsConf.set("reg.fm.regW", "0.01");
+//        fmalsConf.set("reg.fm.regF", "10");
 
-        Configuration fmalsConf = new Configuration();
-        fmalsConf.set("rec.recommender.similarity.key", "user");
-        fmalsConf.set("rec.recommender.class", "fmals");
-        fmalsConf.set("rec.iterator.learnRate", "0.001");
-        fmalsConf.set("rec.iterator.maximum", "100");
-        fmalsConf.set("rec.recommender.maxrate", "12.0");
-        fmalsConf.set("rec.recommender.minrate", "0.0");
-        fmalsConf.set("rec.factor.number", "10");
-        fmalsConf.set("rec.fm.regw0", "0.01");
-        fmalsConf.set("reg.fm.regW", "0.01");
-        fmalsConf.set("reg.fm.regF", "10");
+//        Configuration knnConf = new Configuration();
+//        knnConf.set("rec.neighbors.knn.number", "50");
 
         // build recommender context
 
-        RecommenderContext context = new RecommenderContext(fmalsConf, dataModel);
+        RecommenderContext context = new RecommenderContext(new Configuration(), dataModel);
         // build similarity
         RecommenderSimilarity similarity = new PCCSimilarity();
         similarity.buildSimilarityMatrix(dataModel);
         context.setSimilarity(similarity);
         // build recommender
-        Recommender recommender = new MFALSRecommender();
-        //Recommender recommender = new SVDPlusPlusRecommender();
+        //Recommender recommender = new MFALSRecommender();
+        Recommender recommender = new SVDPlusPlusRecommender();
+        //Recommender recommender = new ItemKNNRecommender();
+        //Recommender recommender = new UserKNNRecommender();
+        //Recommender recommender = new NMFRecommender();
+        //Recommender recommender = new PMFRecommender();
+
         recommender.setContext(context);
         // run recommender algorithm
         recommender.recommend(context);
@@ -285,6 +297,8 @@ public class App {
 
         EvaluationResult er = new EvaluationResult();
 
+        double maxError = -1000;
+        String maxErrorAlg = "";
 
         RecommenderEvaluator evaluator = new RMSEEvaluator();
         double sparsResult = recBySpars.evaluate(evaluator);
@@ -294,8 +308,15 @@ public class App {
 
         er.setSparsRmse(sparsResult);
         er.setImputedRmse(imputedResult);
+
         LOG.info("== RMSE obtained by sparse train set:  " + sparsResult);
         LOG.info("== RMSE obtained by imputed train set: " + imputedResult);
+        LOG.info("== RMSE Differentiation:  " + (sparsResult-imputedResult));
+        if ((sparsResult-imputedResult) > maxError){
+            maxError = (sparsResult-imputedResult);
+            maxErrorAlg = "RMSE";
+        }
+
 
         evaluator = new MAEEvaluator();
         sparsResult = recBySpars.evaluate(evaluator);
@@ -305,8 +326,14 @@ public class App {
 
         er.setSparsMae(sparsResult);
         er.setImputedMae(imputedResult);
-        LOG.info("== MAEE obtained by sparse train set:  " + sparsResult);
-        LOG.info("== MAEE obtained by imputed train set: " + imputedResult);
+        LOG.info("== MAE obtained by sparse train set:  " + sparsResult);
+        LOG.info("== MAE obtained by imputed train set: " + imputedResult);
+        LOG.info("== MAE Differentiation:  " + (sparsResult-imputedResult));
+        if ((sparsResult-imputedResult) > maxError){
+            maxError = (sparsResult-imputedResult);
+            maxErrorAlg = "MAE";
+        }
+
 
         evaluator = new MPEEvaluator();
         sparsResult = recBySpars.evaluate(evaluator);
@@ -316,26 +343,36 @@ public class App {
 
         er.setSparsMpe(sparsResult);
         er.setImputedMpe(imputedResult);
-        LOG.info("== MAPE obtained by sparse train set:  " + sparsResult);
-        LOG.info("== MAPE obtained by imputed train set: " + imputedResult);
+        LOG.info("== MPE obtained by sparse train set:  " + sparsResult);
+        LOG.info("== MPE obtained by imputed train set: " + imputedResult);
+        LOG.info("== MPE Differentiation:  " + (sparsResult-imputedResult));
+        if ((sparsResult-imputedResult) > maxError){
+            maxError = (sparsResult-imputedResult);
+            maxErrorAlg = "MPE";
+        }
+
+        er.setMinDiffError(maxError);
+        er.setMinDiffErrorAlg(maxErrorAlg);
 
         return er;
     }
 
     private void printResult(EvaluationResult result) throws IOException {
+        String finalRecommenderName = "SVDPP";
         StringBuilder builder = new StringBuilder();
         builder.append(String.format("This test has taken %s minutes to complete on %s"
                 , Duration.between(start, Instant.now()).getSeconds()/60, LocalDateTime.now()));
         builder.append(String.format("\nNumber of whole cells is: %s", numberOfWholeCells));
         builder.append(String.format("\nNumber of to be imputed cells is: %s", maximumNumberOfToBeImputedCells));
         builder.append(String.format("\nActual number of imputed cells is: %s", actualNumberOfImputedCells));
-        builder.append("\n\nThe evaluation result is as the follow:");
-        builder.append(String.format("\n\tRMSE obtained by sparse train set:\t%f", result.getSparsRmse()));
+        builder.append(String.format("\n\nThe evaluation result for '%s' is as the follow:", finalRecommenderName));
+        builder.append(String.format("\n\n\tThe best result is for algorithm '%s' with %f differentiation", result.getMinDiffErrorAlg(), result.getMinDiffError()));
+        builder.append(String.format("\n\n\tRMSE obtained by sparse train set:\t%f", result.getSparsRmse()));
         builder.append(String.format("\n\tRMSE obtained by imputed train set:\t%f", result.getImputedRmse()));
-        builder.append(String.format("\n\n\tRMAE obtained by sparse train set:\t%f", result.getSparsMae()));
-        builder.append(String.format("\n\tRMAE obtained by imputed train set:\t%f", result.getImputedMae()));
-        builder.append(String.format("\n\n\tRMPE obtained by sparse train set:\t%f", result.getSparsMpe()));
-        builder.append(String.format("\n\tRMPE obtained by imputed train set:\t%f", result.getImputedMpe()));
+        builder.append(String.format("\n\n\tMAE obtained by sparse train set:\t%f", result.getSparsMae()));
+        builder.append(String.format("\n\tMAE obtained by imputed train set:\t%f", result.getImputedMae()));
+        builder.append(String.format("\n\n\tMPE obtained by sparse train set:\t%f", result.getSparsMpe()));
+        builder.append(String.format("\n\tMPE obtained by imputed train set:\t%f", result.getImputedMpe()));
         builder.append("\n\nHere is the initial used configuration: ");
         for (Map.Entry<String, String> entry : cfg) {
             builder.append(String.format("\n%s\t=\t%s", entry.getKey(), entry.getValue()));
@@ -345,8 +382,10 @@ public class App {
             builder.append(String.format("%+10.4f\n", v));
         }
 
-        String filename = String.format("rounds-%s_impute-%s_%s", cfg.get("impute.rounds"), cfg.get("impute.ratio")
-            , LocalDateTime.now().format(DateTimeFormatter.ofPattern("YYYY-MM-dd-HH-mm-ss")));
+        String filename = String.format("%s_rounds-%s_impute-%s_%s_%s%f", finalRecommenderName
+            , cfg.get("impute.rounds"), cfg.get("impute.ratio")
+            , LocalDateTime.now().format(DateTimeFormatter.ofPattern("YYYY-MM-dd-HH-mm-ss"))
+            , result.getMinDiffErrorAlg(), result.getMinDiffError());
         String resultPath = cfg.get("dfs.result.dir", ".");
         FileWriter writer = new FileWriter(resultPath + "/" + filename);
         writer.write(builder.toString());

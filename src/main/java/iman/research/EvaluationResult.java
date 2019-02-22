@@ -1,6 +1,9 @@
 package iman.research;
 
 public class EvaluationResult {
+    private double minDiffError;
+    private String minDiffErrorAlg;
+
     private double sparsRmse;
     private double imputedRmse;
 
@@ -11,6 +14,22 @@ public class EvaluationResult {
     private double imputedMpe;
 
     public EvaluationResult() {
+    }
+
+    public double getMinDiffError() {
+        return minDiffError;
+    }
+
+    public void setMinDiffError(double minDiffError) {
+        this.minDiffError = minDiffError;
+    }
+
+    public String getMinDiffErrorAlg() {
+        return minDiffErrorAlg;
+    }
+
+    public void setMinDiffErrorAlg(String minDiffErrorAlg) {
+        this.minDiffErrorAlg = minDiffErrorAlg;
     }
 
     public double getSparsRmse() {
